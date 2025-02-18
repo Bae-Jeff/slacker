@@ -3,6 +3,18 @@
 # 기본 경로
 BASE_DIR="/data"
 
+# Docker 설치 확인 및 설치 함수
+check_and_install_docker() {
+    if ! command -v docker &> /dev/null; then
+        echo "Docker가 설치되어 있지 않습니다. 설치 중..."
+        sudo dnf config-manager --add-repo=https://download.docker.com/linux/centos/docker-ce.repo
+        sudo dnf install -y docker-ce docker-ce-cli containerd.io
+        echo "Docker가 설치되었습니다."
+    else
+        echo "Docker가 이미 설치되어 있습니다."
+    fi
+}
+
 # Docker Compose 설치 확인 및 설치 함수
 check_and_install_docker_compose() {
     if ! command -v docker-compose &> /dev/null; then
@@ -31,6 +43,9 @@ check_docker_daemon() {
 
 # 사이트 추가 함수
 add_site() {
+    # Docker 설치 확인
+    check_and_install_docker
+
     # Docker 데몬 실행 확인
     check_docker_daemon
 
