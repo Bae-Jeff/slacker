@@ -3,8 +3,23 @@
 # 기본 경로
 BASE_DIR="/data"
 
+# Docker Compose 설치 확인 및 설치 함수
+check_and_install_docker_compose() {
+    if ! command -v docker-compose &> /dev/null; then
+        echo "Docker Compose가 설치되어 있지 않습니다. 설치 중..."
+        sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+        sudo chmod +x /usr/local/bin/docker-compose
+        echo "Docker Compose가 설치되었습니다."
+    else
+        echo "Docker Compose가 이미 설치되어 있습니다."
+    fi
+}
+
 # 사이트 추가 함수
 add_site() {
+    # Docker Compose 설치 확인
+    check_and_install_docker_compose
+
     read -p "도메인 입력: " DOMAIN
     echo "언어 선택 (php, python, nodejs): "
     select LANG in "php" "python" "nodejs"; do break; done
@@ -50,7 +65,7 @@ FROM php:8.3-apache
 RUN docker-php-ext-install pdo pdo_mysql
 COPY ./apache.conf /etc/apache2/sites-available/000-default.conf
 COPY . /var/www/html/
-RUN chown -R www-data:www-data /var/www/html
+RUN chown -R apache:apache /var/www/html
 EOL
             if [ "$DB" == "sqlite3" ]; then
                 echo "RUN docker-php-ext-install pdo_sqlite" >> "$BASE_DIR/$DOMAIN/Dockerfile"
