@@ -3,12 +3,43 @@
 # 기본 경로
 BASE_DIR="/data"
 
+# Podman 설치 확인 및 설치 함수
+check_and_install_podman() {
+    if ! command -v podman &> /dev/null; then
+        echo "Podman이 설치되어 있지 않습니다. 설치 중..."
+        sudo dnf install -y podman
+        echo "Podman이 설치되었습니다."
+    else
+        echo "Podman이 이미 설치되어 있습니다."
+    fi
+}
+
+# Podman Compose 설치 확인 및 설치 함수
+check_and_install_podman_compose() {
+    if ! command -v pip3 &> /dev/null; then
+        echo "pip3가 설치되어 있지 않습니다. 설치 중..."
+        sudo dnf install -y python3-pip
+    fi
+
+    if ! command -v podman-compose &> /dev/null; then
+        echo "Podman Compose가 설치되어 있지 않습니다. 설치 중..."
+        pip3 install --user podman-compose
+        echo 'export PATH=$PATH:$HOME/.local/bin' >> ~/.bashrc
+        source ~/.bashrc
+        echo "Podman Compose가 설치되었습니다."
+    else
+        echo "Podman Compose가 이미 설치되어 있습니다."
+    fi
+}
+
 # Docker 설치 확인 및 설치 함수
 check_and_install_docker() {
     if ! command -v docker &> /dev/null; then
         echo "Docker가 설치되어 있지 않습니다. 설치 중..."
         sudo dnf config-manager --add-repo=https://download.docker.com/linux/centos/docker-ce.repo
         sudo dnf install -y docker-ce docker-ce-cli containerd.io
+        sudo systemctl start docker
+        sudo systemctl enable docker
         echo "Docker가 설치되었습니다."
     else
         echo "Docker가 이미 설치되어 있습니다."
@@ -43,14 +74,11 @@ check_docker_daemon() {
 
 # 사이트 추가 함수
 add_site() {
-    # Docker 설치 확인
-    check_and_install_docker
+    # Podman 설치 확인
+    check_and_install_podman
 
-    # Docker 데몬 실행 확인
-    check_docker_daemon
-
-    # Docker Compose 설치 확인
-    check_and_install_docker_compose
+    # Podman Compose 설치 확인
+    check_and_install_podman_compose
 
     read -p "도메인 입력: " DOMAIN
     echo "언어 선택 (php, python, nodejs): "
@@ -71,11 +99,11 @@ add_site() {
     # Apache 설정 파일 생성
     create_apache_conf "$DOMAIN"
 
-    # Docker Compose 파일 생성
+    # Podman Compose 파일 생성
     create_docker_compose "$DOMAIN" "$DB" "$USE_REDIS" "$USE_WEBSOCKET" "$WEBSOCKET_LANG"
 
-    # Docker 서비스 시작
-    docker-compose -f "$BASE_DIR/$DOMAIN/docker-compose.yml" up -d
+    # Podman 서비스 시작
+    podman-compose -f "$BASE_DIR/$DOMAIN/docker-compose.yml" up -d
     echo "사이트가 추가되었습니다: $DOMAIN"
 }
 
@@ -94,9 +122,20 @@ create_dockerfile() {
         php)
             cat > "$BASE_DIR/$DOMAIN/Dockerfile" <<EOL
 FROM php:8.3-apache
+
+# 필요한 디렉토리 생성
+RUN mkdir -p /var/www/html
+
+# 필요한 PHP 확장 설치
 RUN docker-php-ext-install pdo pdo_mysql
+
+# Apache 설정 복사
 COPY ./apache.conf /etc/apache2/sites-available/000-default.conf
+
+# 애플리케이션 파일 복사
 COPY . /var/www/html/
+
+# 권한 설정
 RUN chown -R apache:apache /var/www/html
 EOL
             if [ "$DB" == "sqlite3" ]; then
@@ -324,7 +363,7 @@ check_status() {
     fi
 
     echo "도메인 상태 확인 중: $DOMAIN"
-    docker-compose -f "$BASE_DIR/$DOMAIN/docker-compose.yml" ps
+    podman-compose -f "$BASE_DIR/$DOMAIN/docker-compose.yml" ps
 
     echo "설치 상태 확인:"
     if [ -d "$BASE_DIR/$DOMAIN" ]; then
@@ -341,7 +380,7 @@ check_status() {
     fi
 
     echo "로그 확인:"
-    docker-compose -f "$BASE_DIR/$DOMAIN/docker-compose.yml" logs --tail=10
+    podman-compose -f "$BASE_DIR/$DOMAIN/docker-compose.yml" logs --tail=10
 }
 
 # 메인 함수
