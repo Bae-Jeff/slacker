@@ -15,8 +15,25 @@ check_and_install_docker_compose() {
     fi
 }
 
+# Docker 데몬 실행 확인 함수
+check_docker_daemon() {
+    if ! systemctl is-active --quiet docker; then
+        echo "Docker 데몬이 실행되고 있지 않습니다. Docker 데몬을 시작합니다..."
+        sudo systemctl start docker
+        if ! systemctl is-active --quiet docker; then
+            echo "Docker 데몬을 시작할 수 없습니다. 수동으로 Docker를 시작하세요."
+            exit 1
+        fi
+    else
+        echo "Docker 데몬이 실행 중입니다."
+    fi
+}
+
 # 사이트 추가 함수
 add_site() {
+    # Docker 데몬 실행 확인
+    check_docker_daemon
+
     # Docker Compose 설치 확인
     check_and_install_docker_compose
 
