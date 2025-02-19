@@ -1,4 +1,10 @@
 #!/bin/bash
+: <<'stacker'
+mv stacker.sh /usr/local/bin/stacker
+sudo chmod +x /usr/local/bin/stacker
+#echo 'export PATH=$PATH:/path/to/your/script' >> ~/.bashrc
+source ~/.bashrc
+stacker
 
 # 기본 경로
 BASE_DIR="/data"
@@ -74,13 +80,20 @@ check_docker_daemon() {
 
 # 사이트 추가 함수
 add_site() {
+    read -p "도메인 입력: " DOMAIN
+
+    # 도메인 디렉토리 존재 여부 확인
+    if [ -d "$BASE_DIR/$DOMAIN" ]; then
+        echo "도메인이 이미 존재합니다: $DOMAIN"
+        return
+    fi
+
     # Podman 설치 확인
     check_and_install_podman
 
     # Podman Compose 설치 확인
     check_and_install_podman_compose
 
-    read -p "도메인 입력: " DOMAIN
     echo "언어 선택 (php, python, nodejs): "
     select LANG in "php" "python" "nodejs"; do break; done
     echo "DB 선택 (mysql, postgresql, sqlite3): "
@@ -92,12 +105,12 @@ add_site() {
         echo "웹소켓 서버 언어 선택 (nodejs, python, php): "
         select WEBSOCKET_LANG in "nodejs" "python" "php"; do break; done
     fi
+    
+    # Apache 설정 파일 생성
+    create_apache_conf "$DOMAIN"
 
     # Dockerfile 생성
     create_dockerfile "$DOMAIN" "$LANG" "$DB" "$USE_REDIS" "$USE_WEBSOCKET" "$WEBSOCKET_LANG"
-
-    # Apache 설정 파일 생성
-    create_apache_conf "$DOMAIN"
 
     # Podman Compose 파일 생성
     create_docker_compose "$DOMAIN" "$DB" "$USE_REDIS" "$USE_WEBSOCKET" "$WEBSOCKET_LANG"
@@ -114,9 +127,7 @@ create_dockerfile() {
     DB=$3
     USE_REDIS=$4
     USE_WEBSOCKET=$5
-    WEBSOCKET_LANG=$6
-
-    mkdir -p "$BASE_DIR/$DOMAIN"
+    WEBSOCKET_LANG=$6 
 
     case $LANG in
         php)
@@ -126,17 +137,28 @@ FROM php:8.3-apache
 # 필요한 디렉토리 생성
 RUN mkdir -p /var/www/html
 
+# RUN apt-get update
+# RUN apt-get install -y lynx
+# apache2ctl status 이거 필요하면 위 에거 설치
+
 # 필요한 PHP 확장 설치
 RUN docker-php-ext-install pdo pdo_mysql
-
 # Apache 설정 복사
-COPY ./apache.conf /etc/apache2/sites-available/000-default.conf
+# COPY apache.conf /etc/apache2/apache2.conf
+
+RUN cat /etc/apache2/apache2.conf
 
 # 애플리케이션 파일 복사
-COPY . /var/www/html/
+# COPY source /var/www/html/
 
 # 권한 설정
-RUN chown -R apache:apache /var/www/html
+RUN chown -R www-data:www-data /var/www/html
+
+# Apache2 설정 활성화
+RUN a2ensite 000-default && a2enmod rewrite
+
+# Apache2 서비스 시작
+CMD ["apache2-foreground"]
 EOL
             if [ "$DB" == "sqlite3" ]; then
                 echo "RUN docker-php-ext-install pdo_sqlite" >> "$BASE_DIR/$DOMAIN/Dockerfile"
@@ -146,9 +168,9 @@ EOL
             cat > "$BASE_DIR/$DOMAIN/Dockerfile" <<EOL
 FROM python:3.9
 WORKDIR /app
-COPY requirements.txt ./
+COPY $BASE_DIR/$DOMAIN/requirements.txt ./
 RUN pip install -r requirements.txt
-COPY . .
+COPY $BASE_DIR/$DOMAIN/. .
 CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
 EOL
             ;;
@@ -156,9 +178,9 @@ EOL
             cat > "$BASE_DIR/$DOMAIN/Dockerfile" <<EOL
 FROM node:16
 WORKDIR /app
-COPY package*.json ./
+COPY $BASE_DIR/$DOMAIN/package*.json ./
 RUN npm install
-COPY . .
+COPY $BASE_DIR/$DOMAIN/. .
 CMD ["npm", "start"]
 EOL
             ;;
@@ -172,9 +194,9 @@ EOL
                 cat > "$BASE_DIR/$DOMAIN/websocket/Dockerfile" <<EOL
 FROM node:16
 WORKDIR /app
-COPY package*.json ./
+COPY $BASE_DIR/$DOMAIN/websocket/package*.json ./
 RUN npm install
-COPY . .
+COPY $BASE_DIR/$DOMAIN/websocket/. .
 CMD ["node", "websocket.js"]
 EOL
                 ;;
@@ -182,9 +204,9 @@ EOL
                 cat > "$BASE_DIR/$DOMAIN/websocket/Dockerfile" <<EOL
 FROM python:3.9
 WORKDIR /app
-COPY requirements.txt ./
+COPY $BASE_DIR/$DOMAIN/websocket/requirements.txt ./
 RUN pip install -r requirements.txt
-COPY . .
+COPY $BASE_DIR/$DOMAIN/websocket/. .
 CMD ["python", "websocket.py"]
 EOL
                 ;;
@@ -192,7 +214,7 @@ EOL
                 cat > "$BASE_DIR/$DOMAIN/websocket/Dockerfile" <<EOL
 FROM php:8.3-cli
 WORKDIR /app
-COPY . .
+COPY $BASE_DIR/$DOMAIN/websocket/. .
 CMD ["php", "websocket.php"]
 EOL
                 ;;
@@ -208,13 +230,28 @@ EOL
 # Apache 설정 파일 생성
 create_apache_conf() {
     DOMAIN=$1
-    cat > "$BASE_DIR/$DOMAIN/apache.conf" <<EOL
+    
+    mkdir -p "$BASE_DIR/$DOMAIN"
+    cat > "$BASE_DIR/$DOMAIN/000-default.conf" <<EOL 
+<VirtualHost *:80>
+        ServerAdmin $DOMAIN
+        DocumentRoot /var/www/html
+
+        ErrorLog ${APACHE_LOG_DIR}/error.log
+        CustomLog ${APACHE_LOG_DIR}/access.log combined
+
+        #Include conf-available/serve-cgi-bin.conf
+</VirtualHost>
+EOL    
+    echo "Container Apache 설정 파일 생성됨: $BASE_DIR/$DOMAIN/000-default.conf"
+    cat > "/etc/httpd/conf.d/$DOMAIN.conf" <<EOL 
 <VirtualHost *:80>
     ServerName $DOMAIN
     ProxyPass / http://$DOMAIN:80/
     ProxyPassReverse / http://$DOMAIN:80/
 </VirtualHost>
 EOL
+    echo "vHost Apache 설정 파일 생성됨: /etc/httpd/conf.d/$DOMAIN.conf"
 }
 
 # Docker Compose 파일 생성
@@ -224,40 +261,52 @@ create_docker_compose() {
     USE_REDIS=$3
     USE_WEBSOCKET=$4
     WEBSOCKET_LANG=$5
+
+    # 도메인 이름에서 .을 _로 변환
+    DOMAIN_TAG=$(echo "$DOMAIN" | sed 's/\./_/g')
+
     cat > "$BASE_DIR/$DOMAIN/docker-compose.yml" <<EOL
 version: '3.8'
 services:
   app:
     build: .
-    container_name: ${DOMAIN}_container
+    image: ${DOMAIN_TAG}:1.0.0
+    container_name: ${DOMAIN_TAG}_app
     ports:
       - "80:80"
+    volumes:
+      - $BASE_DIR/$DOMAIN/configs/www:/var/www/html
 EOL
-
+#    volumes:
+#      - $BASE_DIR/$DOMAIN/configs/php.ini:/usr/local/etc/php/php.ini
+#      - $BASE_DIR/$DOMAIN/configs/apache2:/etc/apache2
+#      - $BASE_DIR/$DOMAIN/configs/www:/var/www/html
     if [ "$DB" == "mysql" ]; then
         cat >> "$BASE_DIR/$DOMAIN/docker-compose.yml" <<EOL
   db:
-    image: mysql
+    image: docker.io/library/mysql:5.7
+    container_name: ${DOMAIN_TAG}_mysql
     environment:
       MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: ${DOMAIN}_db
+      MYSQL_DATABASE: ${DOMAIN_TAG}_db
     volumes:
-      - $BASE_DIR/$DOMAIN/DB:/var/lib/mysql
+      - $BASE_DIR/$DOMAIN/database:/var/lib/mysql
 EOL
     elif [ "$DB" == "postgresql" ]; then
         cat >> "$BASE_DIR/$DOMAIN/docker-compose.yml" <<EOL
   db:
-    image: postgres
+    image: docker.io/library/postgres:13
+    container_name: ${DOMAIN_TAG}_postgres
     environment:
       POSTGRES_USER: root
-      POSTGRES_DB: ${DOMAIN}_db
+      POSTGRES_DB: ${DOMAIN_TAG}_db
     volumes:
-      - $BASE_DIR/$DOMAIN/DB:/var/lib/postgresql/data
+      - $BASE_DIR/$DOMAIN/database:/var/lib/postgresql/data
 EOL
     elif [ "$DB" == "sqlite3" ]; then
         cat >> "$BASE_DIR/$DOMAIN/docker-compose.yml" <<EOL
   volumes:
-    - $BASE_DIR/$DOMAIN/DB:/var/www/html/db
+    - $BASE_DIR/$DOMAIN/database:/var/www/html/db
 EOL
     fi
 
@@ -274,7 +323,7 @@ EOL
         cat >> "$BASE_DIR/$DOMAIN/docker-compose.yml" <<EOL
   websocket:
     build: ./websocket
-    container_name: ${DOMAIN}_websocket
+    container_name: ${DOMAIN_TAG}_websocket
     ports:
       - "8080:8080"
 EOL
@@ -373,14 +422,66 @@ check_status() {
     fi
 
     echo "설정 파일 확인:"
-    if [ -f "$BASE_DIR/$DOMAIN/apache.conf" ]; then
-        echo "Apache 설정 파일 존재"
+    if [ -f "$BASE_DIR/$DOMAIN/000-default.conf" ]; then
+        echo "Container Apache 설정 파일 존재"
     else
-        echo "Apache 설정 파일 없음"
+        echo "Container Apache 설정 파일 없음"
     fi
 
     echo "로그 확인:"
     podman-compose -f "$BASE_DIR/$DOMAIN/docker-compose.yml" logs --tail=10
+}
+
+# 컨테이너 제어 함수
+control_container() {
+    ACTION=$1
+    DOMAIN=$2
+
+    if [ -z "$DOMAIN" ]; then
+        echo "도메인을 입력하세요."
+        return
+    fi
+
+    DOMAIN_TAG=$(echo "$DOMAIN" | sed 's/\./_/g')
+
+    case $ACTION in
+        start)
+            echo "컨테이너 시작 중: $DOMAIN"
+            if podman ps -a --format "{{.Names}}" | grep -q "${DOMAIN_TAG}_app"; then
+                echo "기존 컨테이너 실행 중: $DOMAIN"
+                podman start ${DOMAIN_TAG}_app
+            else
+                echo "새로운 컨테이너 생성 및 실행 중: $DOMAIN"
+                podman-compose -f "$BASE_DIR/$DOMAIN/docker-compose.yml" up -d
+            fi
+            ;;
+        stop)
+            echo "컨테이너 중지 중: $DOMAIN"
+            podman-compose -f "$BASE_DIR/$DOMAIN/docker-compose.yml" down
+            ;;
+        delete)
+            echo "컨테이너 삭제 중: $DOMAIN"
+            podman-compose -f "$BASE_DIR/$DOMAIN/docker-compose.yml" down
+            rm -rf "$BASE_DIR/$DOMAIN"
+            echo "사이트가 삭제되었습니다: $DOMAIN"
+            ;;
+        shell)
+            echo "컨테이너 셸 접속 중: $DOMAIN"
+            podman exec -it ${DOMAIN_TAG}_app bash
+            ;;
+        status)
+            echo "컨테이너 상태 확인 중: $DOMAIN"
+            if ! podman ps --format "{{.Names}}" | grep -q "${DOMAIN_TAG}_app"; then
+                echo "컨테이너가 실행 중이 아닙니다. 시작합니다: $DOMAIN"
+                podman start ${DOMAIN_TAG}_app
+            else
+                echo "컨테이너가 이미 실행 중입니다: $DOMAIN"
+            fi
+            ;;
+        *)
+            echo "사용법: $0 {start|stop|delete|shell|status} [도메인]"
+            ;;
+    esac
 }
 
 # 메인 함수
@@ -410,7 +511,10 @@ case $1 in
     check-status)
         check_status "$2"
         ;;
+    start|stop|delete|shell|status)
+        control_container $1 $2
+        ;;
     *)
-        echo "사용법: $0 {add|del|list|ssl [도메인]|ssl-fresh|check-status [도메인]}"
+        echo "사용법: $0 {add|del|list|ssl [도메인]|ssl-fresh|check-status [도메인]|start|stop|delete|shell|status [도메인]}"
         ;;
 esac
