@@ -1,4 +1,5 @@
 #!/bin/bash
+# wget https://raw.githubusercontent.com/Bae-Jeff/slacker/master/stacker.sh
 : <<'stacker'
 mv stacker.sh /usr/local/bin/stacker
 sudo chmod +x /usr/local/bin/stacker
@@ -314,6 +315,7 @@ EOL
         cat >> "$BASE_DIR/$DOMAIN/docker-compose.yml" <<EOL
   redis:
     image: redis
+    container_name: ${DOMAIN_TAG}_redis
     ports:
       - "6379:6379"
 EOL
