@@ -15,9 +15,9 @@ source ~/.bashrc
 
 // podman + docker
 
-# sudo dnf install podman -y
-# sudo dnf install python3-pip -y
-# pip3 install podman-compose
+sudo dnf install podman -y
+sudo dnf install python3-pip -y
+pip3 install podman-compose
 sudo dnf install docker -y
 sudo touch /etc/containers/nodocker
 sudo systemctl start docker
@@ -35,7 +35,7 @@ sudo firewall-cmd --permanent --add-port=21/tcp
 sudo firewall-cmd --permanent --add-port=22/tcp
 sudo firewall-cmd --permanent --add-port=80/tcp
 sudo firewall-cmd --permanent --add-port=6379/tcp
-sudo firewall-cmd --permanent --add-port=3000/tcp
+sudo firewall-cmd --permanent --add-port=3000~3999/tcp
 sudo firewall-cmd --permanent --add-port=5000~5999/tcp
 sudo firewall-cmd --permanent --add-port=8000~8999/tcp
 sudo firewall-cmd --reload
@@ -304,8 +304,8 @@ EOL
     SSLCertificateKeyFile /etc/letsencrypt/live/$DOMAIN/privkey.pem
     SSLCertificateChainFile /etc/letsencrypt/live/$DOMAIN/chain.pem
 
-    ErrorLog /data/$DOMAIN/logs/$DOMAIN-ssl-error.log
-    CustomLog /data/$DOMAIN/logs/$DOMAIN-ssl-access.log combined
+    ErrorLog \${APACHE_LOG_DIR}/$DOMAIN-ssl-error.log
+    CustomLog \${APACHE_LOG_DIR}/$DOMAIN-ssl-access.log combined
 </VirtualHost>
 EOL
     echo "SSL Apache 설정 파일 생성됨: /etc/httpd/conf.d/$DOMAIN.ssl.conf"

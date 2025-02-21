@@ -304,8 +304,8 @@ EOL
     SSLCertificateKeyFile /etc/letsencrypt/live/$DOMAIN/privkey.pem
     SSLCertificateChainFile /etc/letsencrypt/live/$DOMAIN/chain.pem
 
-    ErrorLog /data/$DOMAIN/logs/$DOMAIN-ssl-error.log
-    CustomLog /data/$DOMAIN/logs/$DOMAIN-ssl-access.log combined
+    ErrorLog \${APACHE_LOG_DIR}/$DOMAIN-ssl-error.log
+    CustomLog \${APACHE_LOG_DIR}/$DOMAIN-ssl-access.log combined
 </VirtualHost>
 EOL
     echo "SSL Apache 설정 파일 생성됨: /etc/httpd/conf.d/$DOMAIN.ssl.conf"
