@@ -16,7 +16,7 @@ source ~/.bashrc
 // podman + docker
 sudo dnf install podman -y
 sudo dnf install python3-pip -y
-pip3 install podman-compose -y
+pip3 install podman-compose
 sudo dnf install docker -y
 
 sudo systemctl start docker
