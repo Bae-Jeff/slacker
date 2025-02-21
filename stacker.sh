@@ -1,10 +1,26 @@
 #!/bin/bash
-# wget https://raw.githubusercontent.com/Bae-Jeff/slacker/master/stacker.sh
 : <<'stacker'
-mv stacker.sh /usr/local/bin/stacker
-sudo chmod +x /usr/local/bin/stacker
+wget https://raw.githubusercontent.com/Bae-Jeff/slacker/master/stacker.sh
+mv stacker.sh /usr/local/bin/vov
+sudo chmod +x /usr/local/bin/vov
 #echo 'export PATH=$PATH:/path/to/your/script' >> ~/.bashrc
 source ~/.bashrc
+
+
+sudo dnf install httpd -y
+sudo systemctl enable httpd
+sudo systemctl start httpd
+sudo dnf install mod_ssl -y
+sudo systemctl restart httpd
+
+sudo firewall-cmd --permanent --add-port=21/tcp
+sudo firewall-cmd --permanent --add-port=22/tcp
+sudo firewall-cmd --permanent --add-port=80/tcp
+sudo firewall-cmd --permanent --add-port=6379/tcp
+sudo firewall-cmd --permanent --add-port=3000~3999/tcp
+sudo firewall-cmd --permanent --add-port=5000~5999/tcp
+sudo firewall-cmd --permanent --add-port=8000~8999/tcp
+sudo firewall-cmd --reload
 stacker
 
 # 기본 경로
@@ -231,29 +247,69 @@ EOL
 # Apache 설정 파일 생성
 create_apache_conf() {
     DOMAIN=$1
-    
+    DOMAIN_TAG=$(echo "$DOMAIN" | sed 's/\./_/g')
+
+    # 도메인 디렉토리 생성
     mkdir -p "$BASE_DIR/$DOMAIN"
-    cat > "$BASE_DIR/$DOMAIN/000-default.conf" <<EOL 
+
+    # 컨테이너 내부 Apache 설정 파일 생성
+    cat > "$BASE_DIR/$DOMAIN/000-default.conf" <<EOL
 <VirtualHost *:80>
-        ServerAdmin $DOMAIN
-        DocumentRoot /var/www/html
+    ServerAdmin webmaster@$DOMAIN
+    DocumentRoot /var/www/html
 
-        ErrorLog ${APACHE_LOG_DIR}/error.log
-        CustomLog ${APACHE_LOG_DIR}/access.log combined
-
-        #Include conf-available/serve-cgi-bin.conf
+    ErrorLog \${APACHE_LOG_DIR}/error.log
+    CustomLog \${APACHE_LOG_DIR}/access.log combined
 </VirtualHost>
-EOL    
+EOL
     echo "Container Apache 설정 파일 생성됨: $BASE_DIR/$DOMAIN/000-default.conf"
-    cat > "/etc/httpd/conf.d/$DOMAIN.conf" <<EOL 
+
+    # 호스트의 Apache 설정 파일 생성
+    cat > "/etc/httpd/conf.d/$DOMAIN.conf" <<EOL
 <VirtualHost *:80>
     ServerName $DOMAIN
-    ProxyPass / http://$DOMAIN:80/
-    ProxyPassReverse / http://$DOMAIN:80/
+    ProxyPass / http://${DOMAIN_TAG}_app:80/
+    ProxyPassReverse / http://${DOMAIN_TAG}_app:80/
 </VirtualHost>
 EOL
     echo "vHost Apache 설정 파일 생성됨: /etc/httpd/conf.d/$DOMAIN.conf"
+
+    # SSL 설정 파일 생성
+    cat > "/etc/httpd/conf.d/$DOMAIN.ssl.conf" <<EOL
+<VirtualHost *:443>
+    ServerName $DOMAIN
+    ProxyPass / http://${DOMAIN_TAG}_app:80/
+    ProxyPassReverse / http://${DOMAIN_TAG}_app:80/
+
+    SSLEngine on
+    SSLCertificateFile /etc/letsencrypt/live/$DOMAIN/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/$DOMAIN/privkey.pem
+    SSLCertificateChainFile /etc/letsencrypt/live/$DOMAIN/chain.pem
+
+    ErrorLog \${APACHE_LOG_DIR}/$DOMAIN-ssl-error.log
+    CustomLog \${APACHE_LOG_DIR}/$DOMAIN-ssl-access.log combined
+</VirtualHost>
+EOL
+    echo "SSL Apache 설정 파일 생성됨: /etc/httpd/conf.d/$DOMAIN.ssl.conf"
 }
+
+# 기존 웹 서비스 컨테이너 수 계산
+existing_web_containers=$(podman ps -a --format "{{.Names}}" | grep "_app" | wc -l)
+
+# 기존 MySQL 컨테이너 수 계산
+existing_mysql_containers=$(podman ps -a --format "{{.Names}}" | grep "_mysql" | wc -l)
+
+# 기존 PostgreSQL 컨테이너 수 계산
+existing_postgres_containers=$(podman ps -a --format "{{.Names}}" | grep "_postgres" | wc -l)
+
+# 웹 서비스 포트 설정
+web_port=$((8000 + existing_web_containers))
+
+# MySQL 포트 설정
+mysql_port=$((3000 + existing_mysql_containers))
+
+# PostgreSQL 포트 설정
+postgres_port=$((5000 + existing_postgres_containers))
 
 # Docker Compose 파일 생성
 create_docker_compose() {
@@ -263,7 +319,6 @@ create_docker_compose() {
     USE_WEBSOCKET=$4
     WEBSOCKET_LANG=$5
 
-    # 도메인 이름에서 .을 _로 변환
     DOMAIN_TAG=$(echo "$DOMAIN" | sed 's/\./_/g')
 
     cat > "$BASE_DIR/$DOMAIN/docker-compose.yml" <<EOL
@@ -274,14 +329,11 @@ services:
     image: ${DOMAIN_TAG}:1.0.0
     container_name: ${DOMAIN_TAG}_app
     ports:
-      - "80:80"
+      - "${web_port}:80"
     volumes:
       - $BASE_DIR/$DOMAIN/configs/www:/var/www/html
 EOL
-#    volumes:
-#      - $BASE_DIR/$DOMAIN/configs/php.ini:/usr/local/etc/php/php.ini
-#      - $BASE_DIR/$DOMAIN/configs/apache2:/etc/apache2
-#      - $BASE_DIR/$DOMAIN/configs/www:/var/www/html
+
     if [ "$DB" == "mysql" ]; then
         cat >> "$BASE_DIR/$DOMAIN/docker-compose.yml" <<EOL
   db:
@@ -290,6 +342,8 @@ EOL
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: ${DOMAIN_TAG}_db
+    ports:
+      - "${mysql_port}:3306"
     volumes:
       - $BASE_DIR/$DOMAIN/database:/var/lib/mysql
 EOL
@@ -301,13 +355,10 @@ EOL
     environment:
       POSTGRES_USER: root
       POSTGRES_DB: ${DOMAIN_TAG}_db
+    ports:
+      - "${postgres_port}:5432"
     volumes:
       - $BASE_DIR/$DOMAIN/database:/var/lib/postgresql/data
-EOL
-    elif [ "$DB" == "sqlite3" ]; then
-        cat >> "$BASE_DIR/$DOMAIN/docker-compose.yml" <<EOL
-  volumes:
-    - $BASE_DIR/$DOMAIN/database:/var/www/html/db
 EOL
     fi
 
