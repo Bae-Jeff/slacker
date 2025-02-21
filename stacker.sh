@@ -1,5 +1,12 @@
 #!/bin/bash
 : <<'stacker'
+sudo firewall-cmd --list-all
+sudo firewall-cmd --permanent --add-port=22/tcp
+sudo firewall-cmd --reload
+sudo vi /etc/ssh/sshd_config
+>> PermitRootLogin yes
+sudo systemctl restart sshd
+
 wget https://raw.githubusercontent.com/Bae-Jeff/slacker/master/stacker.sh
 mv stacker.sh /usr/local/bin/vov
 sudo chmod +x /usr/local/bin/vov
