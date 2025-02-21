@@ -14,13 +14,15 @@ sudo chmod +x /usr/local/bin/vov
 source ~/.bashrc
 
 // podman + docker
+
 sudo dnf install podman -y
 sudo dnf install python3-pip -y
 pip3 install podman-compose
 sudo dnf install docker -y
-
+sudo touch /etc/containers/nodocker
 sudo systemctl start docker
 sudo systemctl enable docker
+
 // end podman + docker
 
 sudo dnf install httpd -y
@@ -319,13 +321,13 @@ existing_mysql_containers=$(podman ps -a --format "{{.Names}}" | grep "_mysql" |
 existing_postgres_containers=$(podman ps -a --format "{{.Names}}" | grep "_postgres" | wc -l)
 
 # 웹 서비스 포트 설정
-web_port=$((8000 + existing_web_containers))
+web_port=$((8001 + existing_web_containers))
 
 # MySQL 포트 설정
-mysql_port=$((3000 + existing_mysql_containers))
+mysql_port=$((3001 + existing_mysql_containers))
 
 # PostgreSQL 포트 설정
-postgres_port=$((5000 + existing_postgres_containers))
+postgres_port=$((5001 + existing_postgres_containers))
 
 # Docker Compose 파일 생성
 create_docker_compose() {
