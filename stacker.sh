@@ -13,6 +13,15 @@ sudo chmod +x /usr/local/bin/vov
 #echo 'export PATH=$PATH:/path/to/your/script' >> ~/.bashrc
 source ~/.bashrc
 
+// podman + docker
+sudo dnf install podman -y
+sudo dnf install python3-pip -y
+pip3 install podman-compose -y
+sudo dnf install docker -y
+
+sudo systemctl start docker
+sudo systemctl enable docker
+// end podman + docker
 
 sudo dnf install httpd -y
 sudo systemctl enable httpd
