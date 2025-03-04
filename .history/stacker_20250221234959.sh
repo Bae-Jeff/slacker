@@ -123,32 +123,14 @@ add_site() {
         return
     fi
 
-    DOMAIN_TAG=$(echo "$DOMAIN" | sed 's/\./_/g')
-
-    # 현재 httpd_can_network_connect의 상태를 확인
-    state=$(getsebool httpd_can_network_connect)
-
-    # SELinux 의 네트워크 허용 상태가 off이면 on으로 설정
-    if [[ $state == *"off"* ]]; then
-        echo "httpd_can_network_connect is off. Enabling..."
-        setsebool -P httpd_can_network_connect on
-    else
-        echo "httpd_can_network_connect is already on."
-    fi
-
     # Podman 설치 확인
     check_and_install_podman
 
     # Podman Compose 설치 확인
     check_and_install_podman_compose
 
-    echo "언어 선택 (php, python, nodejs, go): " # nodejs-fastapi,go-fiber
-    select LANG in "php" "python" "nodejs" "go"; do break; done
-
-    if [ "$LANG" == "php" ]; then
-        echo "PHP 버전 선택 (8.3-apache, 7.4-apache, 7.2-apache): "
-        select PHP_VERSION in "8.3-apache" "7.4-apache" "7.2-apache"; do break; done
-    fi
+    echo "언어 선택 (php, python, nodejs): "
+    select LANG in "php" "python" "nodejs"; do break; done
     echo "DB 선택 (mysql, postgresql, sqlite3): "
     select DB in "mysql" "postgresql" "sqlite3"; do break; done
     read -p "Redis 사용 여부 (y/n): " USE_REDIS
@@ -159,22 +141,18 @@ add_site() {
         select WEBSOCKET_LANG in "nodejs" "python" "php"; do break; done
     fi
     
-
-    
     # Apache 설정 파일 생성
     create_apache_conf "$DOMAIN"
 
     # Dockerfile 생성
-    create_dockerfile "$DOMAIN" "$LANG" "$DB" "$USE_REDIS" "$USE_WEBSOCKET" "$WEBSOCKET_LANG" "$PHP_VERSION"
+    create_dockerfile "$DOMAIN" "$LANG" "$DB" "$USE_REDIS" "$USE_WEBSOCKET" "$WEBSOCKET_LANG"
 
     # Podman Compose 파일 생성
     create_docker_compose "$DOMAIN" "$DB" "$USE_REDIS" "$USE_WEBSOCKET" "$WEBSOCKET_LANG"
 
     # Podman 서비스 시작
     podman-compose -f "$BASE_DIR/$DOMAIN/docker-compose.yml" up -d
-    IP=$(podman inspect -f '{{.NetworkSettings.Networks.segkr_default.IPAddress}}' $DOMAIN_TAG)
     echo "사이트가 추가되었습니다: $DOMAIN"
-    echo "사이트 접속 주소: http://$IP"
 }
 
 # Dockerfile 생성
@@ -184,13 +162,12 @@ create_dockerfile() {
     DB=$3
     USE_REDIS=$4
     USE_WEBSOCKET=$5
-    WEBSOCKET_LANG=$6
-    PHP_VERSION=$7
+    WEBSOCKET_LANG=$6 
 
     case $LANG in
         php)
             cat > "$BASE_DIR/$DOMAIN/Dockerfile" <<EOL
-FROM php:$PHP_VERSION
+FROM php:8.3-apache
 
 # 필요한 디렉토리 생성
 RUN mkdir -p /var/www/html
@@ -200,16 +177,9 @@ RUN mkdir -p /var/www/html
 # apache2ctl status 이거 필요하면 위 에거 설치
 
 # 필요한 PHP 확장 설치
-# mysql 일때
-RUN docker-php-ext-install pdo pdo_mysql mysqli
-
-# postgresql 일때
-RUN apt-get update && apt-get install -y \
-    libpq-dev \
-    && docker-php-ext-install pdo pdo_pgsql pgsql
-
+RUN docker-php-ext-install pdo pdo_mysql
 # Apache 설정 복사
-COPY 000-default.conf /etc/apache2/sites-available/000-default.conf
+# COPY apache.conf /etc/apache2/apache2.conf
 
 RUN cat /etc/apache2/apache2.conf
 
@@ -218,10 +188,8 @@ RUN cat /etc/apache2/apache2.conf
 
 # 권한 설정
 RUN chown -R www-data:www-data /var/www/html
-RUN chmod -R 755 /var/www/html/
 
 # Apache2 설정 활성화
-RUN cat /etc/apache2/sites-available/000-default.conf
 RUN a2ensite 000-default && a2enmod rewrite
 
 # Apache2 서비스 시작
@@ -298,34 +266,19 @@ EOL
 create_apache_conf() {
     DOMAIN=$1
     DOMAIN_TAG=$(echo "$DOMAIN" | sed 's/\./_/g')
-    PORT=$((8001 + existing_web_containers))
+
     # 도메인 디렉토리 생성
     mkdir -p "$BASE_DIR/$DOMAIN"
-    # 호스트 로그 디렉토리 생성
-    mkdir -p "$BASE_DIR/$DOMAIN/host_logs"
-    chown -R apache:apache "$BASE_DIR/$DOMAIN/host_logs"
-    chmod -R 755 "$BASE_DIR/$DOMAIN/host_logs"
-
-    # 컨테이너 내 로그 디렉토리 생성
+    mkdir -p "$BASE_DIR/$DOMAIN/http_logs"
     mkdir -p "$BASE_DIR/$DOMAIN/container_logs"
-    chown -R apache:apache "$BASE_DIR/$DOMAIN/container_logs"
-    chmod -R 755 "$BASE_DIR/$DOMAIN/container_logs"
-
-    # 호스트 로그 디렉토리 selinux 설정
-    chcon -R -t httpd_sys_rw_content_t "$BASE_DIR/$DOMAIN/host_logs" 
-    chcon -R -t httpd_sys_rw_content_t "$BASE_DIR/$DOMAIN/container_logs"
-
     # 컨테이너 내부 Apache 설정 파일 생성
     cat > "$BASE_DIR/$DOMAIN/000-default.conf" <<EOL
 <VirtualHost *:80>
-    ServerName $DOMAIN
     ServerAdmin webmaster@$DOMAIN
     DocumentRoot /var/www/html
-    <Directory /var/www/html>
-        Options Indexes FollowSymLinks
-        AllowOverride All
-        Require all granted
-    </Directory>
+
+    ErrorLog /data/$DOMAIN/logs/$DOMAIN-error.log
+    CustomLog /data/$DOMAIN/logs/$DOMAIN-access.log combined
 </VirtualHost>
 EOL
     echo "Container Apache 설정 파일 생성됨: $BASE_DIR/$DOMAIN/000-default.conf"
@@ -334,32 +287,29 @@ EOL
     cat > "/etc/httpd/conf.d/$DOMAIN.conf" <<EOL
 <VirtualHost *:80>
     ServerName $DOMAIN
-    ProxyPass / http://localhost:$PORT/
-    ProxyPassReverse / http://localhost:$PORT/
-    
-    CustomLog "|/usr/sbin/rotatelogs /data/$DOMAIN/host_logs/$DOMAIN-access-%Y-%m-%d.log 86400" combined
-    ErrorLog "|/usr/sbin/rotatelogs /data/$DOMAIN/host_logs/$DOMAIN-error-%Y-%m-%d.log 86400"
+    ProxyPass / http://${DOMAIN_TAG}_app:80/
+    ProxyPassReverse / http://${DOMAIN_TAG}_app:80/
 </VirtualHost>
 EOL
     echo "vHost Apache 설정 파일 생성됨: /etc/httpd/conf.d/$DOMAIN.conf"
 
     # SSL 설정 파일 생성
-#     cat > "/etc/httpd/conf.d/$DOMAIN.ssl.conf" <<EOL
-# <VirtualHost *:443>
-#     ServerName $DOMAIN
-#     ProxyPass / http://localhost:$PORT/
-#     ProxyPassReverse / http://localhost:$PORT/
+    cat > "/etc/httpd/conf.d/$DOMAIN.ssl.conf" <<EOL
+<VirtualHost *:443>
+    ServerName $DOMAIN
+    ProxyPass / http://${DOMAIN_TAG}_app:80/
+    ProxyPassReverse / http://${DOMAIN_TAG}_app:80/
 
-#     SSLEngine on
-#     SSLCertificateFile /etc/letsencrypt/live/$DOMAIN/fullchain.pem
-#     SSLCertificateKeyFile /etc/letsencrypt/live/$DOMAIN/privkey.pem
-#     SSLCertificateChainFile /etc/letsencrypt/live/$DOMAIN/chain.pem
+    SSLEngine on
+    SSLCertificateFile /etc/letsencrypt/live/$DOMAIN/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/$DOMAIN/privkey.pem
+    SSLCertificateChainFile /etc/letsencrypt/live/$DOMAIN/chain.pem
 
-#     CustomLog "|/usr/sbin/rotatelogs /data/$DOMAIN/host_logs/$DOMAIN-ssl-access-%Y-%m-%d.log 86400" combined
-#     ErrorLog "|/usr/sbin/rotatelogs /data/$DOMAIN/host_logs/$DOMAIN-ssl-error-%Y-%m-%d.log 86400"
-# </VirtualHost>
-# EOL
-    # echo "SSL Apache 설정 파일 생성됨: /etc/httpd/conf.d/$DOMAIN.ssl.conf"
+    ErrorLog /data/$DOMAIN/logs/$DOMAIN-ssl-error.log
+    CustomLog /data/$DOMAIN/logs/$DOMAIN-ssl-access.log combined
+</VirtualHost>
+EOL
+    echo "SSL Apache 설정 파일 생성됨: /etc/httpd/conf.d/$DOMAIN.ssl.conf"
 }
 
 # 기존 웹 서비스 컨테이너 수 계산
@@ -400,8 +350,7 @@ services:
     ports:
       - "${web_port}:80"
     volumes:
-      - $BASE_DIR/$DOMAIN/www:/var/www/html
-      - $BASE_DIR/$DOMAIN/container_logs:/var/log/apache2
+      - $BASE_DIR/$DOMAIN/configs/www:/var/www/html
 EOL
 
     if [ "$DB" == "mysql" ]; then
@@ -425,7 +374,6 @@ EOL
     environment:
       POSTGRES_USER: root
       POSTGRES_DB: ${DOMAIN_TAG}_db
-      POSTGRES_PASSWORD: postgres
     ports:
       - "${postgres_port}:5432"
     volumes:

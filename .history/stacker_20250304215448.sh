@@ -355,8 +355,8 @@ EOL
 #     SSLCertificateKeyFile /etc/letsencrypt/live/$DOMAIN/privkey.pem
 #     SSLCertificateChainFile /etc/letsencrypt/live/$DOMAIN/chain.pem
 
-#     CustomLog "|/usr/sbin/rotatelogs /data/$DOMAIN/host_logs/$DOMAIN-ssl-access-%Y-%m-%d.log 86400" combined
-#     ErrorLog "|/usr/sbin/rotatelogs /data/$DOMAIN/host_logs/$DOMAIN-ssl-error-%Y-%m-%d.log 86400"
+#     CustomLog "|/usr/sbin/rotatelogs /data/$DOMAIN/host_logs/$DOMAIN-access-%Y-%m-%d.log 86400" combined
+#     ErrorLog "|/usr/sbin/rotatelogs /data/$DOMAIN/host_logs/$DOMAIN-error-%Y-%m-%d.log 86400"
 # </VirtualHost>
 # EOL
     # echo "SSL Apache 설정 파일 생성됨: /etc/httpd/conf.d/$DOMAIN.ssl.conf"

@@ -142,8 +142,8 @@ add_site() {
     # Podman Compose 설치 확인
     check_and_install_podman_compose
 
-    echo "언어 선택 (php, python, nodejs, go): " # nodejs-fastapi,go-fiber
-    select LANG in "php" "python" "nodejs" "go"; do break; done
+    echo "언어 선택 (php, python, nodejs): "
+    select LANG in "php" "python" "nodejs"; do break; done
 
     if [ "$LANG" == "php" ]; then
         echo "PHP 버전 선택 (8.3-apache, 7.4-apache, 7.2-apache): "
@@ -336,9 +336,8 @@ EOL
     ServerName $DOMAIN
     ProxyPass / http://localhost:$PORT/
     ProxyPassReverse / http://localhost:$PORT/
-    
-    CustomLog "|/usr/sbin/rotatelogs /data/$DOMAIN/host_logs/$DOMAIN-access-%Y-%m-%d.log 86400" combined
-    ErrorLog "|/usr/sbin/rotatelogs /data/$DOMAIN/host_logs/$DOMAIN-error-%Y-%m-%d.log 86400"
+    ErrorLog /data/$DOMAIN/host_logs/$DOMAIN-error.log
+    CustomLog /data/$DOMAIN/host_logs/$DOMAIN-access.log combined
 </VirtualHost>
 EOL
     echo "vHost Apache 설정 파일 생성됨: /etc/httpd/conf.d/$DOMAIN.conf"
@@ -355,8 +354,8 @@ EOL
 #     SSLCertificateKeyFile /etc/letsencrypt/live/$DOMAIN/privkey.pem
 #     SSLCertificateChainFile /etc/letsencrypt/live/$DOMAIN/chain.pem
 
-#     CustomLog "|/usr/sbin/rotatelogs /data/$DOMAIN/host_logs/$DOMAIN-ssl-access-%Y-%m-%d.log 86400" combined
-#     ErrorLog "|/usr/sbin/rotatelogs /data/$DOMAIN/host_logs/$DOMAIN-ssl-error-%Y-%m-%d.log 86400"
+#     ErrorLog /data/$DOMAIN/host_logs/$DOMAIN-ssl-error.log
+#     CustomLog /data/$DOMAIN/host_logs/$DOMAIN-ssl-access.log combined
 # </VirtualHost>
 # EOL
     # echo "SSL Apache 설정 파일 생성됨: /etc/httpd/conf.d/$DOMAIN.ssl.conf"
