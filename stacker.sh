@@ -155,8 +155,8 @@ add_site() {
     read -p "웹소켓 서버 추가 여부 (y/n): " USE_WEBSOCKET
 
     if [ "$USE_WEBSOCKET" == "y" ]; then
-        echo "웹소켓 서버 언어 선택 (nodejs, python, php): "
-        select WEBSOCKET_LANG in "nodejs" "python" "php"; do break; done
+        echo "웹소켓 서버 언어 선택 (nodejs, python, php, go): "
+        select WEBSOCKET_LANG in "nodejs" "python" "php" "go"; do break; done
     fi
     
 
@@ -251,6 +251,15 @@ COPY $BASE_DIR/$DOMAIN/. .
 CMD ["npm", "start"]
 EOL
             ;;
+        go)
+            cat > "$BASE_DIR/$DOMAIN/Dockerfile" <<EOL
+FROM golang:1.20
+WORKDIR /app
+COPY $BASE_DIR/$DOMAIN/. .
+RUN go mod tidy
+RUN go build -o main main.go
+CMD ["./main"]
+EOL
     esac
 
     # 웹소켓 서버 Dockerfile 생성
@@ -285,6 +294,13 @@ COPY $BASE_DIR/$DOMAIN/websocket/. .
 CMD ["php", "websocket.php"]
 EOL
                 ;;
+            go)
+                cat > "$BASE_DIR/$DOMAIN/websocket/Dockerfile" <<EOL
+FROM golang:1.20
+WORKDIR /app
+COPY $BASE_DIR/$DOMAIN/websocket/. .
+CMD ["./main"]
+EOL
         esac
     fi
 
